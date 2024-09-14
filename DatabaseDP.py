@@ -45,13 +45,13 @@ async def start_db():
         """CREATE TABLE IF NOT EXISTS order_photo(
         id SERIAL PRIMARY KEY,
         ord_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-        id_photo INTEGER NOT NULL)"""
+        id_photo VARCHAR(256) NOT NULL)"""
     )
     await conn.execute(
         """CREATE TABLE IF NOT EXISTS order_documents(
         id SERIAL PRIMARY KEY,
         ord_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-        id_document INTEGER NOT NULL)"""
+        id_document VARCHAR(256) NOT NULL)"""
     )
 
 
@@ -143,7 +143,7 @@ async def add_document(dic):
 async def add_order(dic):
     conn = await connect_db()
     ret = await conn.fetchval("""INSERT INTO orders(period, comment, status, stud_id, job_id, disc_id)
-                          VALUES($1, $2, 0, $3, $4, $5) RETURNING id""",
+                          VALUES(TO_DATE($1, 'YYYY-MM-DD'), $2, 0, $3, $4, $5) RETURNING id""",
                               dic['period'], dic['comment'], dic['stud_id'], dic['job_id'], dic['disc_id'])
     await conn.close()
     return ret

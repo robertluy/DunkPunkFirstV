@@ -106,8 +106,8 @@ async def photo_document_input(message: types.Message, state: FSMContext):
         await state.update_data(document=file_id)
 
     # После прикрепления фото или документа, спрашиваем подтверждение
-    await message.answer("Вы хотите подтвердить заявку? Да/Нет", reply_markup=kb.confirm)
-    await StudentDisciplineChoice.next()
+    await message.answer("Давайте посмотрим заявку? Да/Нет", reply_markup=kb.confirm)
+    await StudentDisciplineChoice.finalize.set()
 
 
 async def finalize_order(message: types.Message, state: FSMContext):
@@ -116,10 +116,11 @@ async def finalize_order(message: types.Message, state: FSMContext):
         order_data = {
             'period': data['period'],
             'comment': data['comment'],
-            'stud_id': data['stud_id'],  # Это ID студента
-            'job_id': data['job_id'],  # Тип работы
-            'disc_id': data['disc_id']  # Дисциплина
+            'stud_id': message.from_user.id,  # Это ID студента
+            'job_id': int(data['job_type']),  # Тип работы
+            'disc_id': int(data['discipline'])  # Дисциплина
         }
+        print(order_data)
         order_id = await db.add_order(order_data)
 
         # Если есть фото или документы, прикрепляем их к заявке
@@ -131,24 +132,24 @@ async def finalize_order(message: types.Message, state: FSMContext):
             await db.add_document(doc_data)
 
         # Собираем данные для отправки студенту на подтверждение
-        confirmation_text = f"Период выполнения: {data['period']}\nКомментарий: {data['comment']}\nДисциплина: {data['disc_name']}\nТип работы: {data['job_name']}"
+        confirmation_text = f"Период выполнения: {data['period']}\nКомментарий: {data['comment']}\nДисциплина: {data['discipline']}\nТип работы: {data['job_type']}"
 
         await message.answer(confirmation_text)
         # Отправляем фото, если оно есть
         if 'photo' in data:
-            photo_file = InputFile(data['photo'])
-            await message.answer_photo(photo=photo_file)
+            photo_file_id = data['photo']
+            await message.answer_photo(photo=photo_file_id)
 
         # Отправляем документ, если он есть
         if 'doc' in data:
-            doc_file = InputFile(data['doc'])
-            await message.answer_document(document=doc_file)
+            doc_file_id = data['doc']
+            await message.answer_document(document=doc_file_id)
 
         # Спрашиваем подтверждение
         await message.answer("Подтверждаете заявку? (Да/Нет)", reply_markup=kb.confirm)
-
+        await state.update_data(order_id=order_id)
         # Переходим в состояние ожидания подтверждения
-        await StudentDisciplineChoice.next()
+        await StudentDisciplineChoice.confirmation.set()
 
 
 async def process_confirmation(message: types.Message, state: FSMContext):
