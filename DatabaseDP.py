@@ -16,6 +16,7 @@ async def start_db():
     await conn.execute(
         """CREATE TABLE IF NOT EXISTS students(
         tg_id INTEGER PRIMARY KEY,
+        tg_tag VARCHAR(128) NOT NULL,
         chat_id INTEGER NOT NULL,
         course INTEGER NOT NULL,
         course_name VARCHAR(128) NOT NULL)"""
@@ -54,10 +55,10 @@ async def start_db():
         id_document VARCHAR(256) NOT NULL)"""
     )
 
-
     await conn.execute(
         """CREATE TABLE IF NOT EXISTS solver(
         tg_id INTEGER PRIMARY KEY,
+        tg_tag VARCHAR(128) NOT NULL,
         chat_id INTEGER NOT NULL,
         rating NUMERIC(2, 1) CHECK (rating >= 0 AND rating <= 5),
         course INTEGER NOT NULL,
@@ -102,8 +103,9 @@ async def add_student(dic):
     user_check = await check_user(dic['tg_id'])
     if user_check[0] == 0:
         print('not good')
-        await conn.execute('''INSERT INTO students(tg_id, chat_id, course, course_name) VALUES ($1, $2, $3, $4)''',
-                           dic['tg_id'], dic['chat_id'], int(dic['course']), dic['course_name'])
+        await conn.execute('''INSERT INTO students(tg_id, tg_tag, chat_id, course, course_name)
+                              VALUES ($1, $2, $3, $4, $5)''',
+                           dic['tg_id'], dic['tg_tag'], dic['chat_id'], int(dic['course']), dic['course_name'])
         ret = 1
     await conn.close()
     print('good')
@@ -122,6 +124,22 @@ async def add_solver(dic):
         ret = -1
     await conn.close()
     return ret
+
+
+async def update_solver_tg_tag(tg_id, tg_tag):
+    conn = await connect_db()
+    await conn.execute("UPDATE solver SET tg_tag=$1 WHERE tg_id=$2", tg_tag, tg_id)
+    await conn.close()
+
+
+async def get_solver_id_from_tg_tag(tg_tag):
+    conn = await connect_db()
+    ot = await conn.fetch("SELECT tg_id FROM solver WHERE tg_tag=$1", tg_tag)
+    await conn.close()
+    if ot:
+        return ot[0][0]
+    else:
+        return -1
 
 
 async def add_photo(dic):
@@ -179,10 +197,19 @@ async def update_presolution_status(status, ord_id=0, id_=0):
     await conn.close()
 
 
-async def show_presolution_student(ord_id):
+async def show_presolution_student(stud_id):
     conn = await connect_db()
-    sps = [-1]
-    sps_tmp = await conn.fetch("SELECT id, sol_id, price, comment FROM presolution WHERE ord_id=$1", ord_id)
+    sps = [[-1]]
+    sps_tmp = await conn.fetch(
+        """
+        SELECT o.id, p.sol_id, d.name, p.price, p.comment, p.status
+        FROM presolution p
+        LEFT JOIN orders o ON p.ord_id = o.id
+        LEFT JOIN discipline d ON o.disc_id = d.id
+        WHERE o.stud_id = $1 AND (p.status = 0 OR p.status = 3)
+        """,
+        stud_id
+    )
     if sps_tmp:
         sps = [list(i) for i in sps_tmp]
     await conn.close()
@@ -291,3 +318,23 @@ async def show_orders(sol_id, disc_id):
         return sps
     else:
         return [-1]
+
+
+async def show_job_type(id):
+    conn = await connect_db()
+    ot = 'None'
+    jn = await conn.fetch("SELECT name FROM job_type WHERE id=$1", id)
+    if jn:
+        ot = jn[0][0]
+    await conn.close()
+    return ot
+
+
+async def show_disc_name(id):
+    conn = await connect_db()
+    ot = 'None'
+    jn = await conn.fetch("SELECT name FROM discipline WHERE id=$1", id)
+    if jn:
+        ot = jn[0][0]
+    await conn.close()
+    return ot

@@ -21,3 +21,8 @@ class RegistrationSolver(StatesGroup):
     course_name = State()
     phone = State()
     bank = State()
+
+
+class Admin_Approve(StatesGroup):
+    discipline_list = State()
+    solver_name = State()

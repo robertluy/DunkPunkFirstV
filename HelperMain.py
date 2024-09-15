@@ -1,7 +1,7 @@
 from aiogram import executor
 import DatabaseDP as db
 from creating import dp
-from handlers import client
+from handlers import client, admin
 
 
 # будет вызвано при запуске бота
@@ -12,6 +12,7 @@ async def on_startup(_):
 
 
 client.register_handler_client(dp)
+admin.register_handler_admin(dp)
 
 if __name__ == '__main__':
     executor.start_polling(dp, on_startup=on_startup, skip_updates=True)  # Запуск бота с использованием long polling
