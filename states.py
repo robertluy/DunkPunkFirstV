@@ -18,11 +18,38 @@ class RegistrationStudent(StatesGroup):
 
 class RegistrationSolver(StatesGroup):
     course = State()
-    course_name = State()
     phone = State()
     bank = State()
+    course_name = State()
+
+
+class CheckingOpenOrders(StatesGroup):
+    disc = State()
+    order = State()
+    price = State()
+    comment = State()
+
+
+class LookAtStatusesSolver(StatesGroup):
+    waiting = State()
 
 
 class Admin_Approve(StatesGroup):
     discipline_list = State()
     solver_name = State()
+
+
+# class SolverOrders(StatesGroup):
+
+class ChatTmp(StatesGroup):
+    savage = State()
+    active = State()
+
+
+class RemoveOrder(StatesGroup):
+    removing = State()
+
+
+class AdminSendSolution(StatesGroup):
+    ord = State()
+    end = State()

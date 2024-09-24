@@ -1,14 +1,15 @@
 from aiogram import types, Dispatcher
-from creating import dp, bot
-from aiogram.types import InputFile
+from creating import dp, bot, storage
 from aiogram.dispatcher import FSMContext
-from states import RegistrationStudent, RegistrationSolver, StudentDisciplineChoice
+from states import RegistrationStudent, StudentDisciplineChoice, ChatTmp, RemoveOrder
 from keyboards import keyboards_client as kb
 import DatabaseDP as db
 from aiogram.dispatcher.filters import Text
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 
 HELP_FILE_PATH_US = "user_help.txt"  # это файл-справка для клиента, такая структура более удобна для редактирования
+active_chats = {}
 
 
 # Функция для чтения содержимого файла справки юзвера
@@ -26,7 +27,8 @@ async def help_but_cl(message: types.Message):  # принимаю мессед�
 
 # @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
-    if await db.check_user(message.from_user.id) != [0, 0]:
+    el = await db.check_user(message.from_user.id)
+    if el[0] == 1:
         await message.answer(f'С возвращением, {message.from_user.first_name}', reply_markup=kb.st_or_sol)
     else:
         await message.answer_sticker('CAACAgIAAxkBAAMZZLD7LJq2aaGAHn-OgkVQKDkM9LgAAk0DAAJSOrAFWJ0Eu-ZdkqUvBA')
@@ -71,15 +73,115 @@ async def check_response(message: types.Message):
         sps = await db.show_presolution_student(message.from_user.id)
         if sps[0][0] != -1:
             for item in sps:
-                if item[4] == 0:
-                    confirmation_text = f"Заказ N{item[0]}\nИсполнитель N{item[1]}\nДисциплина: {item[2]}\nЦена: {item[3]}\nКомментарий: {item[4]}\n"
+                if item[5] == 0:
+                    confirmation_text = f"Ваш заказ N{item[0]}\nИсполнитель N{item[1]}\nДисциплина: {item[2]}\nЦена: {item[3]}\nКомментарий: {item[4]}\n"
+                    choose_button = InlineKeyboardMarkup()
+                    choose_button.add(InlineKeyboardButton(text="Выбрать",
+                                                           callback_data=f"choose_order_{item[1]}choose_order_{item[0]}choose_order_{item[6]}"))
+                    await message.answer(confirmation_text, reply_markup=choose_button)
                 else:
                     confirmation_text = f"В работе заказ N{item[0]}\nисполнителем N{item[1]}\nДисциплина: {item[2]}\nЦена: {item[3]}\nКомментарий: {item[4]}\n"
-                await message.answer(confirmation_text, reply_markup=kb.cr_or_ch)
+                    await message.answer(confirmation_text, reply_markup=kb.cancel)
+            await message.answer('Выберите заявку выше или нажмите "Отмена"', reply_markup=kb.cancel)
+            await ChatTmp.savage.set()
         else:
             await message.answer('Пусто', reply_markup=kb.cr_or_ch)
     else:
         await message.answer('Для начала определимся кто вы', reply_markup=kb.st_or_sol)
+
+
+async def process_order_choice(call: types.CallbackQuery, state: FSMContext):
+    sp = call.data.split('choose_order_')
+    tmp = sp[1]
+    ord_id = sp[2]
+    pr_id = sp[3]
+    if await db.check_not_inwork(int(ord_id)):
+        await call.message.answer(f"Временный чат по заказу N{ord_id} с исполнителем N{tmp} создается...")
+        await invite_to_chat(call.from_user.id, int(pr_id), int(ord_id), int(tmp))
+    else:
+        await call.message.answer('над этим заказом уже работают', reply_markup=kb.cancel)
+        await state.finish()
+
+
+async def invite_to_chat(initiator_id: int, target_user_id: int, ord_id: int, id_: int):
+    invitation_keyboard = InlineKeyboardMarkup()
+    invitation_keyboard.add(InlineKeyboardButton(text="Принять", callback_data=f"accept_chat_{initiator_id}_{ord_id}_{id_}"))
+    invitation_keyboard.add(
+        InlineKeyboardButton(text="Отклонить", callback_data=f"decline_chat_{initiator_id}_{ord_id}_{id_}"))
+    await bot.send_message(
+        target_user_id,
+        f"{initiator_id} приглашает вас в чат по заказу N{ord_id}. Вы хотите принять?",
+        reply_markup=invitation_keyboard
+    )
+
+
+async def process_chat_accept(call: types.CallbackQuery, state: FSMContext):
+    sp = call.data.split('_')
+    initiator_id = int(sp[2])
+    ord_id = sp[3]
+    id_ = sp[4]
+    await db.update_presolution_status(3, int(ord_id), int(id_))
+    target_user_id = call.from_user.id
+    active_chats[initiator_id] = target_user_id
+    active_chats[target_user_id] = initiator_id
+    await bot.send_message(initiator_id,
+                           f"Исполнитель N{target_user_id} принял ваше приглашение в чат по заказу N{ord_id}. Можете начать общение.",
+                           reply_markup=kb.over)
+    await call.message.answer("Вы приняли приглашение. Теперь вы можете общаться в чате.", reply_markup=kb.over)
+    initiator_state = dp.current_state(user=initiator_id, chat=initiator_id)
+    await initiator_state.finish()
+    await state.finish()
+
+
+async def relay_message(message: types.Message):
+    if message.from_user.id in active_chats:
+        target_user_id = active_chats[message.from_user.id]
+        if message.text == 'Завершить':
+            if message.from_user.id in active_chats:
+                target_user_id = active_chats[message.from_user.id]
+                del active_chats[message.from_user.id]
+                del active_chats[target_user_id]
+                await bot.send_message(target_user_id, f"{message.from_user.first_name} завершил чат.", reply_markup=kb.st_or_sol)
+                await message.answer("Чат завершен.", reply_markup=kb.st_or_sol)
+            else:
+                await message.answer("Вы не находитесь в активном чате.", reply_markup=kb.st_or_sol)
+        else:
+            await bot.send_message(target_user_id, f"Сообщение от {message.from_user.first_name}: {message.text}",
+                                   reply_markup=kb.over)
+    else:
+        await message.answer("Ошибка: вы не находитесь в активном чате.", reply_markup=kb.st_or_sol)
+
+
+async def end_chat(message: types.Message, state: FSMContext):
+    if message.from_user.id in active_chats:
+        target_user_id = active_chats[message.from_user.id]
+        del active_chats[message.from_user.id]
+        del active_chats[target_user_id]
+        await bot.send_message(target_user_id, f"{message.from_user.first_name} завершил чат.", reply_markup=kb.st_or_sol)
+        await message.answer("Чат завершен.", reply_markup=kb.st_or_sol)
+        target_user_state = dp.current_state(user=target_user_id, chat=target_user_id)
+        await target_user_state.finish()
+        await state.finish()
+    else:
+        await message.answer("Вы не находитесь в активном чате.", reply_markup=kb.st_or_sol)
+
+
+async def process_chat_decline(call: types.CallbackQuery, state: FSMContext):
+    sp = call.data.split('_')
+    initiator_id = int(sp[2])
+    ord_id = sp[3]
+    current_initiator_state = dp.current_state(user=initiator_id, chat=initiator_id)
+    print(f"Текущее состояние инициатора перед завершением: {await current_initiator_state.get_state()}")
+    if initiator_id in active_chats:
+        del active_chats[initiator_id]
+    if call.from_user.id in active_chats:
+        del active_chats[call.from_user.id]
+    await bot.send_message(initiator_id, f"Исполнитель отклонил ваше приглашение в чат по заказу N{ord_id}.")
+    await current_initiator_state.finish()
+    print(f"Состояние инициатора после завершения: {await current_initiator_state.get_state()}")
+    await state.finish()
+    await call.message.answer("Вы отклонили приглашение.")
+    await call.answer()
 
 
 async def create_new_order(message: types.Message):
@@ -129,6 +231,9 @@ async def photo_document_input(message: types.Message, state: FSMContext):
     elif message.document:
         file_id = message.document.file_id
         await state.update_data(document=file_id)
+    else:
+        await message.answer("Пожалуйста, отправьте фото или документ.")
+        return
 
     # После прикрепления фото или документа, спрашиваем подтверждение
     await message.answer("Давайте посмотрим заявку? Да/Нет", reply_markup=kb.confirm)
@@ -187,9 +292,24 @@ async def process_confirmation(message: types.Message, state: FSMContext):
             order_id = data['order_id']
         # Обновляем статус заявки на 1 (подтверждено)
         await db.update_order_status(order_id, 1)
-        await message.answer("Заявка подтверждена.")
+        await message.answer("Заявка подтверждена.", reply_markup=kb.cr_or_ch)
     else:
-        await message.answer("Заявка не подтверждена.")
+        await message.answer("Заявка не подтверждена.", reply_markup=kb.cr_or_ch)
+    await state.finish()
+
+
+async def remove_order_start(message: types.Message):
+    await message.answer('Введите номер заказа', reply_markup=kb.cancel)
+    await RemoveOrder.removing.set()
+
+
+async def remove_order_end(message: types.Message, state: FSMContext):
+    if await db.compare_ord_stud(int(message.text), message.from_user.id):
+        await db.update_order_status(int(message.text), 0)
+        await db.update_presolution_status(2, int(message.text))
+        await message.answer('Отменили', reply_markup=kb.st_or_sol)
+    else:
+        await message.answer('Вы не являетесь инициатором этого заказа', reply_markup=kb.st_or_sol)
     await state.finish()
 
 
@@ -211,6 +331,10 @@ def register_handler_client(dp: Dispatcher):
     dp.register_message_handler(process_course_name, state=RegistrationStudent.course_name)  # Обработка названия курса
 
     dp.register_message_handler(check_response, Text(equals='Проверить отклики', ignore_case=True))
+    dp.register_callback_query_handler(process_order_choice, state=ChatTmp.savage)
+    dp.register_callback_query_handler(process_chat_accept, Text(startswith="accept_chat_"))
+    dp.register_callback_query_handler(process_chat_decline, Text(startswith="decline_chat_"))
+    dp.register_message_handler(end_chat, Text(equals='Завершить', ignore_case=True), state='*')
     dp.register_message_handler(create_new_order, Text(equals='Создать заявку', ignore_case=True))  # Выбор студента
     dp.register_callback_query_handler(discipline_chosen,
                                        state=StudentDisciplineChoice.discipline_list)  # Обработка выбора дисциплины
@@ -221,3 +345,6 @@ def register_handler_client(dp: Dispatcher):
                                 state=StudentDisciplineChoice.finalize)  # после комментария финализируем
     dp.register_message_handler(process_confirmation,
                                 state=StudentDisciplineChoice.confirmation)  # обработка подтверждения
+    dp.register_message_handler(remove_order_start, Text(equals='Отменить заявку', ignore_case=True))
+    dp.register_message_handler(remove_order_end, state=RemoveOrder.removing)
+    dp.register_message_handler(relay_message)

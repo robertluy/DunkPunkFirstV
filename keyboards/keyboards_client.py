@@ -4,7 +4,10 @@ st_or_sol = ReplyKeyboardMarkup(resize_keyboard=True)  # ресайз под у�
 st_or_sol.add('Студент').add('Решала')
 
 cr_or_ch = ReplyKeyboardMarkup(resize_keyboard=True)  # ресайз под устройство
-cr_or_ch.add('Проверить отклики').add('Создать заявку')
+cr_or_ch.add('Проверить отклики').add('Создать заявку').add('Отменить заявку')
+
+over = ReplyKeyboardMarkup(resize_keyboard=True)  # ресайз под устройство
+over.add('Завершить')
 
 disciplines = InlineKeyboardMarkup(row_width=1)  # инлайн клавиатура, 2 столбца
 disciplines.add(InlineKeyboardButton(text='MATLAB', callback_data='1'),
